@@ -4,6 +4,7 @@ import subprocess
 import os
 from pathlib import Path
 gi.require_version('Gtk', '4.0')
+gi.require_version('Adw', '1')
 from gi.repository import Gtk, GLib, Adw, Gio
 
 class UpdateChecker(Gtk.Application):
