@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, GLib, Adw, Gio
+from gi.repository import Gtk, GLib, Adw, Gdk
 
 class UpdateChecker(Gtk.Application):
     def __init__(self):
@@ -16,7 +16,7 @@ class UpdateChecker(Gtk.Application):
         self.win = Gtk.ApplicationWindow(application=app)
         self.win.set_title('Arch Update Checker')
         self.win.set_default_size(600, 500)
-            
+        self.win.set_resizable(False)  # Prevent window from being resized
         # Create style manager for dark mode
         style_manager = Adw.StyleManager.get_default()
 
@@ -25,6 +25,7 @@ class UpdateChecker(Gtk.Application):
         box.set_margin_bottom(10)
         box.set_margin_start(10)
         box.set_margin_end(10)
+
         self.win.set_child(box)
 
         # System information label
@@ -98,7 +99,6 @@ class UpdateChecker(Gtk.Application):
         update_button.connect('clicked', self.install_updates)
         button_box.append(update_button)
 
-        # Add driver check button
         driver_button = Gtk.Button(label="Check Drivers")
         driver_button.connect('clicked', self.check_drivers)
         button_box.append(driver_button)
