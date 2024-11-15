@@ -73,11 +73,16 @@ class UpdateChecker(Gtk.Application):
         self.status_label = Gtk.Label(label="Click Check Updates to begin")
         box.append(self.status_label)
 
-        # Update list
-        self.update_list = Gtk.ListBox()
+        # Update list with output text view
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
-        scrolled.set_child(self.update_list)
+        
+        self.output_view = Gtk.TextView()
+        self.output_view.set_editable(False)
+        self.output_view.set_wrap_mode(Gtk.WrapMode.WORD)
+        self.output_buffer = self.output_view.get_buffer()
+        
+        scrolled.set_child(self.output_view)
         box.append(scrolled)
 
         # Buttons
@@ -107,33 +112,47 @@ class UpdateChecker(Gtk.Application):
 
     def check_updates(self, button):
         self.status_label.set_text("Checking for updates...")
-        # Clear previous list
-        while self.update_list.get_first_child():
-            self.update_list.remove(self.update_list.get_first_child())
+        self.output_buffer.set_text("")
             
         try:
             # Run pacman -Sy to sync repos
-            subprocess.run(['sudo', 'pacman', '-Sy'], check=True)
-            # Get list of updates
-            result = subprocess.run(['pacman', '-Qu'], capture_output=True, text=True)
+            process = subprocess.Popen(['sudo', 'pacman', '-Sy'], 
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    universal_newlines=True)
             
-            if result.stdout:
-                updates = result.stdout.strip().split('\n')
-                for update in updates:
-                    row = Gtk.ListBoxRow()
-                    row.set_child(Gtk.Label(label=update))
-                    self.update_list.append(row)
-                self.status_label.set_text(f"Found {len(updates)} updates available")
-            else:
-                self.status_label.set_text("System is up to date!")
+            def update_sync_output():
+                if process.poll() is None:
+                    output = process.stdout.readline()
+                    if output:
+                        end_iter = self.output_buffer.get_end_iter()
+                        self.output_buffer.insert(end_iter, output)
+                    return True
                 
-        except subprocess.CalledProcessError as e:
+                if process.returncode == 0:
+                    # After sync, check for updates
+                    result = subprocess.run(['pacman', '-Qu'], capture_output=True, text=True)
+                    if result.stdout:
+                        updates = result.stdout.strip()
+                        end_iter = self.output_buffer.get_end_iter()
+                        self.output_buffer.insert(end_iter, "\nAvailable updates:\n" + updates)
+                        self.status_label.set_text(f"Found {len(updates.split())} updates available")
+                    else:
+                        self.status_label.set_text("System is up to date!")
+                else:
+                    stderr = process.stderr.read()
+                    end_iter = self.output_buffer.get_end_iter()
+                    self.output_buffer.insert(end_iter, f"Error: {stderr}")
+                return False
+            
+            GLib.timeout_add(100, update_sync_output)
+                
+        except Exception as e:
             self.status_label.set_text(f"Error checking updates: {str(e)}")
 
     def check_drivers(self, button):
         self.status_label.set_text("Checking drivers...")
-        while self.update_list.get_first_child():
-            self.update_list.remove(self.update_list.get_first_child())
+        self.output_buffer.set_text("")
             
         try:
             # Check for missing drivers using lspci
@@ -146,18 +165,13 @@ class UpdateChecker(Gtk.Application):
                     missing_drivers.append(device.split('\n')[0])
             
             if missing_drivers:
+                output_text = "Devices missing drivers:\n\n"
                 for device in missing_drivers:
-                    row = Gtk.ListBoxRow()
-                    label = Gtk.Label(label=f"Missing driver for: {device}")
-                    button = Gtk.Button(label="Install Driver")
-                    button.connect('clicked', lambda btn, dev=device: self.install_driver(dev))
-                    box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-                    box.append(label)
-                    box.append(button)
-                    row.set_child(box)
-                    self.update_list.append(row)
+                    output_text += f"• {device}\n"
+                self.output_buffer.set_text(output_text)
                 self.status_label.set_text(f"Found {len(missing_drivers)} devices without drivers")
             else:
+                self.output_buffer.set_text("All devices have drivers installed!")
                 self.status_label.set_text("All devices have drivers installed!")
                 
             # Update driver information display
@@ -171,6 +185,8 @@ class UpdateChecker(Gtk.Application):
 
     def install_driver(self, device):
         self.status_label.set_text(f"Installing driver for {device}...")
+        self.output_buffer.set_text("")
+        
         try:
             # Determine appropriate driver package based on device
             if "VGA" in device or "Display" in device:
@@ -199,8 +215,12 @@ class UpdateChecker(Gtk.Application):
                                     stderr=subprocess.PIPE,
                                     universal_newlines=True)
             
-            def update_driver_status():
+            def update_driver_output():
                 if process.poll() is None:
+                    output = process.stdout.readline()
+                    if output:
+                        end_iter = self.output_buffer.get_end_iter()
+                        self.output_buffer.insert(end_iter, output)
                     return True
                 
                 if process.returncode == 0:
@@ -208,16 +228,19 @@ class UpdateChecker(Gtk.Application):
                     self.check_drivers(None)  # Refresh driver list
                 else:
                     stderr = process.stderr.read()
-                    self.status_label.set_text(f"Error installing driver: {stderr}")
+                    end_iter = self.output_buffer.get_end_iter()
+                    self.output_buffer.insert(end_iter, f"Error: {stderr}")
                 return False
             
-            GLib.timeout_add(100, update_driver_status)
+            GLib.timeout_add(100, update_driver_output)
             
         except Exception as e:
             self.status_label.set_text(f"Error installing driver: {str(e)}")
 
     def install_updates(self, button):
         self.status_label.set_text("Installing updates...")
+        self.output_buffer.set_text("")
+        
         try:
             # Run the update process and monitor output
             process = subprocess.Popen(['pkexec', 'pacman', '-Syu', '--noconfirm'], 
@@ -225,21 +248,23 @@ class UpdateChecker(Gtk.Application):
                                     stderr=subprocess.PIPE,
                                     universal_newlines=True)
             
-            def update_status():
+            def update_output():
                 if process.poll() is None:
-                    # Process still running
+                    output = process.stdout.readline()
+                    if output:
+                        end_iter = self.output_buffer.get_end_iter()
+                        self.output_buffer.insert(end_iter, output)
                     return True
                 
-                # Process finished
                 if process.returncode == 0:
                     self.status_label.set_text("Updates installed successfully!")
                 else:
                     stderr = process.stderr.read()
-                    self.status_label.set_text(f"Error installing updates: {stderr}")
+                    end_iter = self.output_buffer.get_end_iter()
+                    self.output_buffer.insert(end_iter, f"Error: {stderr}")
                 return False
             
-            # Check status every 100ms
-            GLib.timeout_add(100, update_status)
+            GLib.timeout_add(100, update_output)
             
         except Exception as e:
             self.status_label.set_text(f"Error installing updates: {str(e)}")
