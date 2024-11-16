@@ -16,7 +16,8 @@ class UpdateChecker(Gtk.Application):
         self.win = Gtk.ApplicationWindow(application=app)
         self.win.set_title('Arch Update Checker')
         self.win.set_default_size(600, 500)
-        self.win.set_resizable(False)  # Prevent window from being resized
+        self.win.set_resizable(True)  # Allow window to be resized
+
         # Create style manager for dark mode
         style_manager = Adw.StyleManager.get_default()
 
@@ -50,18 +51,20 @@ class UpdateChecker(Gtk.Application):
             try:
                 hwinfo_result = subprocess.run(['hwinfo', '--short'], capture_output=True, text=True)
                 hw_info = hwinfo_result.stdout.strip()
+                # Use a scrolled window for hwinfo to make it scrollable
+                scrolled_hwinfo = Gtk.ScrolledWindow()
+                scrolled_hwinfo.set_vexpand(True)
                 self.hw_label = Gtk.Label(label="Hardware Information:\n" + hw_info)
-                self.hw_label.set_wrap(True)
-                self.hw_label.set_xalign(0)
-                box.append(self.hw_label)
+                scrolled_hwinfo.set_child(self.hw_label)
+                box.append(scrolled_hwinfo)
             except FileNotFoundError:
                 # hwinfo might not be installed
                 install_hwinfo_button = Gtk.Button(label="Install hwinfo")
                 install_hwinfo_button.connect('clicked', self.install_hwinfo)
                 button_box.append(install_hwinfo_button)
 
-        except subprocess.CalledProcessError as e:
-            system_label = Gtk.Label(label=f"Could not fetch system information: {str(e)}")
+        except subprocess.CalledProcessError:
+            system_label = Gtk.Label(label="Could not fetch system information")
             box.append(system_label)
 
         # Theme switch
@@ -105,6 +108,10 @@ class UpdateChecker(Gtk.Application):
         driver_button = Gtk.Button(label="Check Drivers")
         driver_button.connect('clicked', self.check_drivers)
         button_box.append(driver_button)
+
+        install_button = Gtk.Button(label="Install hwinfo")
+        install_button.connect('clicked', self.install_hwinfo)
+        button_box.append(install_button)
 
         self.win.present()
 
