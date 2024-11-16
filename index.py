@@ -60,8 +60,8 @@ class UpdateChecker(Gtk.Application):
                 install_hwinfo_button.connect('clicked', self.install_hwinfo)
                 button_box.append(install_hwinfo_button)
 
-        except subprocess.CalledProcessError:
-            system_label = Gtk.Label(label="Could not fetch system information")
+        except subprocess.CalledProcessError as e:
+            system_label = Gtk.Label(label=f"Could not fetch system information: {str(e)}")
             box.append(system_label)
 
         # Theme switch
