@@ -25,7 +25,8 @@ class UpdateChecker(Gtk.Application):
         box.set_margin_bottom(10)
         box.set_margin_start(10)
         box.set_margin_end(10)
-
+        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        
         self.win.set_child(box)
 
         # System information label
@@ -55,7 +56,9 @@ class UpdateChecker(Gtk.Application):
                 box.append(self.hw_label)
             except FileNotFoundError:
                 # hwinfo might not be installed
-                pass
+                install_hwinfo_button = Gtk.Button(label="Install hwinfo")
+                install_hwinfo_button.connect('clicked', self.install_hwinfo)
+                button_box.append(install_hwinfo_button)
 
         except subprocess.CalledProcessError:
             system_label = Gtk.Label(label="Could not fetch system information")
@@ -88,7 +91,7 @@ class UpdateChecker(Gtk.Application):
         box.append(scrolled)
 
         # Buttons
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+
         box.append(button_box)
 
         check_button = Gtk.Button(label="Check Updates")
@@ -269,6 +272,39 @@ class UpdateChecker(Gtk.Application):
             
         except Exception as e:
             self.status_label.set_text(f"Error installing updates: {str(e)}")
+
+    def install_hwinfo(self, button):
+        self.status_label.set_text("Installing hwinfo...")
+        self.output_buffer.set_text("")
+        
+        try:
+            # Run pacman to install hwinfo
+            process = subprocess.Popen(['pkexec', 'pacman', '-S', '--noconfirm', 'hwinfo'], 
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    universal_newlines=True)
+            
+            def install_hwinfo_output():
+                if process.poll() is None:
+                    output = process.stdout.readline()
+                    if output:
+                        end_iter = self.output_buffer.get_end_iter()
+                        self.output_buffer.insert(end_iter, output)
+                    return True
+                
+                if process.returncode == 0:
+                    self.status_label.set_text("hwinfo installed successfully!")
+                    self.check_drivers(None)  # Refresh driver list
+                else:
+                    stderr = process.stderr.read()
+                    end_iter = self.output_buffer.get_end_iter()
+                    self.output_buffer.insert(end_iter, f"Error: {stderr}")
+                return False
+            
+            GLib.timeout_add(100, install_hwinfo_output)
+            
+        except Exception as e:
+            self.status_label.set_text(f"Error installing hwinfo: {str(e)}")
 
 if __name__ == '__main__':
     app = UpdateChecker()
