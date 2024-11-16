@@ -3,6 +3,7 @@ import gi
 import subprocess
 import os
 from pathlib import Path
+import threading
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, GLib, Adw, Gdk
@@ -21,51 +22,16 @@ class UpdateChecker(Gtk.Application):
         # Create style manager for dark mode
         style_manager = Adw.StyleManager.get_default()
 
+        scrolled_window = Gtk.ScrolledWindow()
+        scrolled_window.set_vexpand(True)
+        self.win.set_child(scrolled_window)
+
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         box.set_margin_top(10)
         box.set_margin_bottom(10)
         box.set_margin_start(10)
         box.set_margin_end(10)
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        
-        self.win.set_child(box)
-
-        # System information label
-        try:
-            result = subprocess.run(['uname', '-r'], capture_output=True, text=True)
-            kernel = result.stdout.strip()
-            system_info = f"Kernel: {kernel}"
-            system_label = Gtk.Label(label=system_info)
-            box.append(system_label)
-
-            # Driver information
-            driver_result = subprocess.run(['lspci', '-k'], capture_output=True, text=True)
-            drivers = driver_result.stdout.strip()
-            driver_info = "Drivers in use:\n" + "\n".join([line for line in drivers.split('\n') if 'Kernel driver in use:' in line])
-            self.driver_label = Gtk.Label(label=driver_info)
-            self.driver_label.set_wrap(True)
-            self.driver_label.set_xalign(0)
-            box.append(self.driver_label)
-            
-            # Additional driver information from hwinfo
-            try:
-                hwinfo_result = subprocess.run(['hwinfo', '--short'], capture_output=True, text=True)
-                hw_info = hwinfo_result.stdout.strip()
-                # Use a scrolled window for hwinfo to make it scrollable
-                scrolled_hwinfo = Gtk.ScrolledWindow()
-                scrolled_hwinfo.set_vexpand(True)
-                self.hw_label = Gtk.Label(label="Hardware Information:\n" + hw_info)
-                scrolled_hwinfo.set_child(self.hw_label)
-                box.append(scrolled_hwinfo)
-            except FileNotFoundError:
-                # hwinfo might not be installed
-                install_hwinfo_button = Gtk.Button(label="Install hwinfo")
-                install_hwinfo_button.connect('clicked', self.install_hwinfo)
-                button_box.append(install_hwinfo_button)
-
-        except subprocess.CalledProcessError:
-            system_label = Gtk.Label(label="Could not fetch system information")
-            box.append(system_label)
+        scrolled_window.set_child(box)
 
         # Theme switch
         theme_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -77,24 +43,54 @@ class UpdateChecker(Gtk.Application):
         theme_box.append(theme_switch)
         box.append(theme_box)
 
+        # System information label
+        try:
+            kernel = subprocess.run(['uname', '-r'], capture_output=True, text=True).stdout.strip()
+            system_info = f"Kernel: {kernel}"
+            system_label = Gtk.Label(label=system_info)
+            box.append(system_label)
+
+            # Driver information
+            drivers = subprocess.run(['lspci', '-k'], capture_output=True, text=True).stdout.strip()
+            driver_info = "Drivers in use:\n" + "\n".join([line for line in drivers.split('\n') if 'Kernel driver in use:' in line])
+            self.driver_label = Gtk.Label(label=driver_info)
+            self.driver_label.set_wrap(True)
+            self.driver_label.set_xalign(0)
+            box.append(self.driver_label)
+            
+            # Additional driver information from hwinfo
+            try:
+                hw_info = subprocess.run(['hwinfo', '--short'], capture_output=True, text=True).stdout.strip()
+                self.hw_label = Gtk.Label(label="Hardware Information:\n" + hw_info)
+                self.hw_label.set_wrap(True)
+                self.hw_label.set_xalign(0)
+                box.append(self.hw_label)
+            except FileNotFoundError:
+                # hwinfo might not be installed
+                install_hwinfo_button = Gtk.Button(label="Install hwinfo")
+                install_hwinfo_button.connect('clicked', self.install_hwinfo)
+                box.append(install_hwinfo_button)
+
+        except subprocess.CalledProcessError:
+            system_label = Gtk.Label(label="Could not fetch system information")
+            box.append(system_label)
+
         # Status label
         self.status_label = Gtk.Label(label="Click Check Updates to begin")
         box.append(self.status_label)
 
         # Update list with output text view
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        
         self.output_view = Gtk.TextView()
         self.output_view.set_editable(False)
         self.output_view.set_wrap_mode(Gtk.WrapMode.WORD)
         self.output_buffer = self.output_view.get_buffer()
-        
-        scrolled.set_child(self.output_view)
-        box.append(scrolled)
+        self.output_scrolled_window = Gtk.ScrolledWindow()
+        self.output_scrolled_window.set_vexpand(True)
+        self.output_scrolled_window.set_child(self.output_view)
+        box.append(self.output_scrolled_window)
 
         # Buttons
-
+        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         box.append(button_box)
 
         check_button = Gtk.Button(label="Check Updates")
@@ -124,194 +120,107 @@ class UpdateChecker(Gtk.Application):
     def check_updates(self, button):
         self.status_label.set_text("Checking for updates...")
         self.output_buffer.set_text("")
-            
-        try:
-            # Run pacman -Sy to sync repos
-            process = subprocess.Popen(['sudo', 'pacman', '-Sy'], 
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE,
-                                    universal_newlines=True)
-            
-            def update_sync_output():
-                if process.poll() is None:
-                    output = process.stdout.readline()
-                    if output:
-                        end_iter = self.output_buffer.get_end_iter()
-                        self.output_buffer.insert(end_iter, output)
-                    return True
+
+        def update_task():
+            try:
+                # Run pacman -Sy to sync repos
+                process = subprocess.Popen(['sudo', 'pacman', '-Sy'], 
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE,
+                                           universal_newlines=True)
                 
+                output, error = process.communicate()
+
                 if process.returncode == 0:
                     # After sync, check for updates
                     result = subprocess.run(['pacman', '-Qu'], capture_output=True, text=True)
                     if result.stdout:
                         updates = result.stdout.strip()
-                        end_iter = self.output_buffer.get_end_iter()
-                        self.output_buffer.insert(end_iter, "\nAvailable updates:\n" + updates)
+                        GLib.idle_add(self.update_output, "\nAvailable updates:\n" + updates)
                         self.status_label.set_text(f"Found {len(updates.split())} updates available")
                     else:
-                        self.status_label.set_text("System is up to date!")
+                        GLib.idle_add(self.update_output, "System is up to date!")
                 else:
-                    stderr = process.stderr.read()
-                    end_iter = self.output_buffer.get_end_iter()
-                    self.output_buffer.insert(end_iter, f"Error: {stderr}")
-                return False
-            
-            GLib.timeout_add(100, update_sync_output)
-                
-        except Exception as e:
-            self.status_label.set_text(f"Error checking updates: {str(e)}")
+                    GLib.idle_add(self.update_output, f"Error syncing: {error}")
+            except Exception as e:
+                GLib.idle_add(self.update_output, f"Error checking updates: {str(e)}")
+
+        threading.Thread(target=update_task, daemon=True).start()
 
     def check_drivers(self, button):
         self.status_label.set_text("Checking drivers...")
         self.output_buffer.set_text("")
-            
-        try:
-            # Check for missing drivers using lspci
-            result = subprocess.run(['lspci', '-k'], capture_output=True, text=True)
-            devices = result.stdout.strip().split('\n\n')
-            missing_drivers = []
-            
-            for device in devices:
-                if 'Kernel driver in use:' not in device:
-                    missing_drivers.append(device.split('\n')[0])
-            
-            if missing_drivers:
-                output_text = "Devices missing drivers:\n\n"
-                for device in missing_drivers:
-                    output_text += f"• {device}\n"
-                self.output_buffer.set_text(output_text)
-                self.status_label.set_text(f"Found {len(missing_drivers)} devices without drivers")
-            else:
-                self.output_buffer.set_text("All devices have drivers installed!")
-                self.status_label.set_text("All devices have drivers installed!")
-                
-            # Update driver information display
-            driver_result = subprocess.run(['lspci', '-k'], capture_output=True, text=True)
-            drivers = driver_result.stdout.strip()
-            driver_info = "Drivers in use:\n" + "\n".join([line for line in drivers.split('\n') if 'Kernel driver in use:' in line])
-            self.driver_label.set_text(driver_info)
-                
-        except subprocess.CalledProcessError as e:
-            self.status_label.set_text(f"Error checking drivers: {str(e)}")
 
-    def install_driver(self, device):
-        self.status_label.set_text(f"Installing driver for {device}...")
-        self.output_buffer.set_text("")
-        
-        try:
-            # Determine appropriate driver package based on device
-            if "VGA" in device or "Display" in device:
-                if "Intel" in device:
-                    driver = "xf86-video-intel"
-                elif "NVIDIA" in device:
-                    driver = "nvidia"
-                elif "AMD" in device or "ATI" in device:
-                    driver = "xf86-video-amdgpu"
-                else:
-                    driver = "xf86-video-vesa"  # Generic fallback
-            elif "Audio" in device:
-                driver = "alsa-utils pulseaudio"
-            elif "Network" in device:
-                if "Wireless" in device:
-                    driver = "wireless-tools wpa_supplicant"
-                else:
-                    driver = "networkmanager"
-            else:
-                self.status_label.set_text(f"Could not determine appropriate driver for: {device}")
-                return
+        def driver_task():
+            try:
+                result = subprocess.run(['lspci', '-k'], capture_output=True, text=True)
+                devices = result.stdout.strip().split('\n\n')
+                missing_drivers = []
 
-            # Run pacman to install the specific driver
-            process = subprocess.Popen(['pkexec', 'pacman', '-S', '--noconfirm'] + driver.split(), 
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE,
-                                    universal_newlines=True)
-            
-            def update_driver_output():
-                if process.poll() is None:
-                    output = process.stdout.readline()
-                    if output:
-                        end_iter = self.output_buffer.get_end_iter()
-                        self.output_buffer.insert(end_iter, output)
-                    return True
-                
-                if process.returncode == 0:
-                    self.status_label.set_text(f"Driver {driver} installed successfully!")
-                    self.check_drivers(None)  # Refresh driver list
+                for device in devices:
+                    if 'Kernel driver in use:' not in device:
+                        missing_drivers.append(device.split('\n')[0])
+
+                if missing_drivers:
+                    output_text = "Devices missing drivers:\n\n"
+                    for device in missing_drivers:
+                        output_text += f"• {device}\n"
+                    GLib.idle_add(self.update_output, output_text)
+                    self.status_label.set_text(f"Found {len(missing_drivers)} devices without drivers")
                 else:
-                    stderr = process.stderr.read()
-                    end_iter = self.output_buffer.get_end_iter()
-                    self.output_buffer.insert(end_iter, f"Error: {stderr}")
-                return False
-            
-            GLib.timeout_add(100, update_driver_output)
-            
-        except Exception as e:
-            self.status_label.set_text(f"Error installing driver: {str(e)}")
+                    GLib.idle_add(self.update_output, "All devices have drivers installed!")
+                    self.status_label.set_text("All devices have drivers installed!")
+            except subprocess.CalledProcessError as e:
+                GLib.idle_add(self.update_output, f"Error checking drivers: {str(e)}")
+
+        threading.Thread(target=driver_task, daemon=True).start()
+
+    def update_output(self, text):
+        end_iter = self.output_buffer.get_end_iter()
+        self.output_buffer.insert(end_iter, text)
 
     def install_updates(self, button):
         self.status_label.set_text("Installing updates...")
         self.output_buffer.set_text("")
-        
-        try:
-            # Run the update process and monitor output
-            process = subprocess.Popen(['pkexec', 'pacman', '-Syu', '--noconfirm'], 
-                                    stdout=subprocess.PIPE, 
-                                    stderr=subprocess.PIPE,
-                                    universal_newlines=True)
-            
-            def update_output():
-                if process.poll() is None:
-                    output = process.stdout.readline()
-                    if output:
-                        end_iter = self.output_buffer.get_end_iter()
-                        self.output_buffer.insert(end_iter, output)
-                    return True
-                
+
+        def update_task():
+            try:
+                process = subprocess.Popen(['pkexec', 'pacman', '-Syu', '--noconfirm'], 
+                                           stdout=subprocess.PIPE, 
+                                           stderr=subprocess.PIPE,
+                                           universal_newlines=True)
+                output, error = process.communicate()
+
                 if process.returncode == 0:
-                    self.status_label.set_text("Updates installed successfully!")
+                    GLib.idle_add(self.update_output, "Updates installed successfully!")
                 else:
-                    stderr = process.stderr.read()
-                    end_iter = self.output_buffer.get_end_iter()
-                    self.output_buffer.insert(end_iter, f"Error: {stderr}")
-                return False
-            
-            GLib.timeout_add(100, update_output)
-            
-        except Exception as e:
-            self.status_label.set_text(f"Error installing updates: {str(e)}")
+                    GLib.idle_add(self.update_output, f"Error installing updates: {error}")
+            except Exception as e:
+                GLib.idle_add(self.update_output, f"Error installing updates: {str(e)}")
+
+        threading.Thread(target=update_task, daemon=True).start()
 
     def install_hwinfo(self, button):
         self.status_label.set_text("Installing hwinfo...")
         self.output_buffer.set_text("")
-        
-        try:
-            # Run pacman to install hwinfo
-            process = subprocess.Popen(['pkexec', 'pacman', '-S', '--noconfirm', 'hwinfo'], 
-                                    stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE,
-                                    universal_newlines=True)
-            
-            def install_hwinfo_output():
-                if process.poll() is None:
-                    output = process.stdout.readline()
-                    if output:
-                        end_iter = self.output_buffer.get_end_iter()
-                        self.output_buffer.insert(end_iter, output)
-                    return True
-                
+
+        def install_hwinfo_task():
+            try:
+                process = subprocess.Popen(['pkexec', 'pacman', '-S', '--noconfirm', 'hwinfo'], 
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE,
+                                           universal_newlines=True)
+                output, error = process.communicate()
+
                 if process.returncode == 0:
-                    self.status_label.set_text("hwinfo installed successfully!")
+                    GLib.idle_add(self.update_output, "hwinfo installed successfully!")
                     self.check_drivers(None)  # Refresh driver list
                 else:
-                    stderr = process.stderr.read()
-                    end_iter = self.output_buffer.get_end_iter()
-                    self.output_buffer.insert(end_iter, f"Error: {stderr}")
-                return False
-            
-            GLib.timeout_add(100, install_hwinfo_output)
-            
-        except Exception as e:
-            self.status_label.set_text(f"Error installing hwinfo: {str(e)}")
+                    GLib.idle_add(self.update_output, f"Error installing hwinfo: {error}")
+            except Exception as e:
+                GLib.idle_add(self.update_output, f"Error installing hwinfo: {str(e)}")
+
+        threading.Thread(target=install_hwinfo_task, daemon=True).start()
 
 if __name__ == '__main__':
     app = UpdateChecker()
