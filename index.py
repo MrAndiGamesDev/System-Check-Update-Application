@@ -1,227 +1,176 @@
-#!/usr/bin/env python3
 import gi
 import subprocess
-import os
-from pathlib import Path
 import threading
-gi.require_version('Gtk', '4.0')
-gi.require_version('Adw', '1')
-from gi.repository import Gtk, GLib, Adw, Gdk
+import time
 
-class UpdateChecker(Gtk.Application):
+gi.require_version('Gtk', '3.0')
+gi.require_version('Notify', '0.7')
+from gi.repository import Gtk, GLib, Notify
+
+class AppWindow(Gtk.Window):
     def __init__(self):
-        super().__init__(application_id='com.example.archupdate')
-        self.connect('activate', self.on_activate)
+        super().__init__(title="Arch Linux System Update")
+        
+        self.set_default_size(400, 200)
+        
+        # Create a box to pack widgets
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.add(box)
+        
+        # Create a box for the switch and label
+        switch_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        
+        # Create the toggle switch
+        self.switch = Gtk.Switch()
+        self.switch.set_size_request(100, 40)  # Set a fixed size for the switch (adjust as needed)
+        self.switch.connect("state-set", self.on_switch_activated)  # Use state-set instead of notify::active
+        
+        # Add label next to the switch
+        switch_label = Gtk.Label("Enable Auto-Update")
+        switch_box.pack_start(switch_label, False, False, 0)
+        switch_box.pack_start(self.switch, False, False, 0)  # Add the switch to the box with proper packing
+        
+        box.pack_start(switch_box, False, False, 10)
+        
+        # Create a button to trigger the system update
+        self.update_button = Gtk.Button(label="Update Arch Linux")
+        self.update_button.connect("clicked", self.on_update_button_clicked)
+        box.pack_start(self.update_button, False, False, 10)
+        
+        # Create a text view to display logs
+        self.log_view = Gtk.TextView()
+        self.log_view.set_editable(False)
+        self.log_buffer = self.log_view.get_buffer()
+        log_scrolled_window = Gtk.ScrolledWindow()
+        log_scrolled_window.add(self.log_view)
+        box.pack_start(log_scrolled_window, True, True, 0)
 
-    def on_activate(self, app):
-        self.win = Gtk.ApplicationWindow(application=app)
-        self.win.set_title('Arch Update Checker')
-        self.win.set_default_size(600, 500)
-        self.win.set_resizable(True)  # Allow window to be resized
+        # Apply a CSS style to fix the switch scaling
+        self.apply_switch_style()
+        
+        # Initialize notification library
+        Notify.init("Arch Linux Update")
 
-        # Create style manager for dark mode
-        style_manager = Adw.StyleManager.get_default()
+        # Prepare to capture output and error in real-time
+        self.update_process = None
+        self.stdout_output = ""
+        self.stderr_output = ""
 
-        scrolled_window = Gtk.ScrolledWindow()
-        scrolled_window.set_vexpand(True)
-        self.win.set_child(scrolled_window)
+    def apply_switch_style(self):
+        """Apply custom CSS to fix switch scaling."""
+        css = """
+        GtkSwitch {
+            min-width: 80px;
+            min-height: 30px;
+        }
+        """
+        # Create a CssProvider and load the CSS
+        css_provider = Gtk.CssProvider()
+        css_provider.load_from_data(bytes(css, 'utf-8'))
+        
+        # Add the CSS provider to the window
+        self.get_style_context().add_provider(css_provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
 
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        box.set_margin_top(10)
-        box.set_margin_bottom(10)
-        box.set_margin_start(10)
-        box.set_margin_end(10)
-        scrolled_window.set_child(box)
+    def on_switch_activated(self, switch, state):
+        """Called when the switch state is changed (active or inactive)."""
+        is_active = state  # State is either True (ON) or False (OFF)
+        log_message = f"Switch is {'ON' if is_active else 'OFF'}\n"
+        self.send_notification("Arch Linux Update", log_message)
+        # Log the message
+        self.append_to_log(log_message)
 
-        # Theme switch
-        theme_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        theme_label = Gtk.Label(label="Dark Mode")
-        theme_switch = Gtk.Switch()
-        theme_switch.set_active(style_manager.get_dark())
-        theme_switch.connect('state-set', self.on_theme_switch)
-        theme_box.append(theme_label)
-        theme_box.append(theme_switch)
-        box.append(theme_box)
-
-        # System information label
-        try:
-            kernel = subprocess.run(['uname', '-r'], capture_output=True, text=True).stdout.strip()
-            system_info = f"Kernel: {kernel}"
-            system_label = Gtk.Label(label=system_info)
-            box.append(system_label)
-
-            # Driver information
-            drivers = subprocess.run(['lspci', '-k'], capture_output=True, text=True).stdout.strip()
-            driver_info = "Drivers in use:\n" + "\n".join([line for line in drivers.split('\n') if 'Kernel driver in use:' in line])
-            self.driver_label = Gtk.Label(label=driver_info)
-            self.driver_label.set_wrap(True)
-            self.driver_label.set_xalign(0)
-            box.append(self.driver_label)
+    def on_update_button_clicked(self, button):
+        self.append_to_log("Starting Arch Linux update...\n")
+        
+        # First, check if the password is correct before starting the update
+        if self.check_sudo_password():
+            # Send an initial notification about the update
+            self.send_notification("Arch Linux Update", "Update started...")
             
-            # Additional driver information from hwinfo
-            try:
-                hw_info = subprocess.run(['hwinfo', '--short'], capture_output=True, text=True).stdout.strip()
-                self.hw_label = Gtk.Label(label="Hardware Information:\n" + hw_info)
-                self.hw_label.set_wrap(True)
-                self.hw_label.set_xalign(0)
-                box.append(self.hw_label)
-            except FileNotFoundError:
-                # hwinfo might not be installed
-                install_hwinfo_button = Gtk.Button(label="Install hwinfo")
-                install_hwinfo_button.connect('clicked', self.install_hwinfo)
-                box.append(install_hwinfo_button)
+            # Run system update in a separate thread
+            threading.Thread(target=self.run_update_process, daemon=True).start()
+        else:
+            self.append_to_log("Incorrect password. Update aborted.\n")
+            self.send_notification("Arch Linux Update", "Password incorrect. Update aborted.")
 
+    def check_sudo_password(self):
+        """Check if the password is correct by running a sudo command."""
+        try:
+            # Run 'sudo -v' to check if the password is correct
+            subprocess.run(['sudo', '-v'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            return True
         except subprocess.CalledProcessError:
-            system_label = Gtk.Label(label="Could not fetch system information")
-            box.append(system_label)
+            return False
 
-        # Status label
-        self.status_label = Gtk.Label(label="Click Check Updates to begin")
-        box.append(self.status_label)
-
-        # Update list with output text view
-        self.output_view = Gtk.TextView()
-        self.output_view.set_editable(False)
-        self.output_view.set_wrap_mode(Gtk.WrapMode.WORD)
-        self.output_buffer = self.output_view.get_buffer()
-        self.output_scrolled_window = Gtk.ScrolledWindow()
-        self.output_scrolled_window.set_vexpand(True)
-        self.output_scrolled_window.set_child(self.output_view)
-        box.append(self.output_scrolled_window)
-
-        # Buttons
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        box.append(button_box)
-
-        check_button = Gtk.Button(label="Check Updates")
-        check_button.connect('clicked', self.check_updates)
-        button_box.append(check_button)
-
-        update_button = Gtk.Button(label="Install Updates")
-        update_button.connect('clicked', self.install_updates)
-        button_box.append(update_button)
-
-        driver_button = Gtk.Button(label="Check Drivers")
-        driver_button.connect('clicked', self.check_drivers)
-        button_box.append(driver_button)
-
-        install_button = Gtk.Button(label="Install hwinfo")
-        install_button.connect('clicked', self.install_hwinfo)
-        button_box.append(install_button)
-
-        self.win.present()
-
-    def on_theme_switch(self, switch, state):
-        style_manager = Adw.StyleManager.get_default()
-        style_manager.set_color_scheme(
-            Adw.ColorScheme.FORCE_DARK if state else Adw.ColorScheme.FORCE_LIGHT
-        )
-
-    def check_updates(self, button):
-        self.status_label.set_text("Checking for updates...")
-        self.output_buffer.set_text("")
-
-        def update_task():
-            try:
-                # Run pacman -Sy to sync repos
-                process = subprocess.Popen(['sudo', 'pacman', '-Sy'], 
-                                           stdout=subprocess.PIPE,
-                                           stderr=subprocess.PIPE,
-                                           universal_newlines=True)
+    def run_update_process(self):
+        try:
+            # Run the update command
+            self.update_process = subprocess.Popen(
+                ['sudo', 'pacman', '-Syu', '--noconfirm'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            # Send notification about update progress
+            self.send_notification("Arch Linux Update", "Update in progress...")
+            
+            # Start capturing output in real-time
+            while True:
+                # Read stdout and stderr
+                stdout_line = self.update_process.stdout.readline()
+                stderr_line = self.update_process.stderr.readline()
                 
-                output, error = process.communicate()
+                # If the process has finished and no output is left, break
+                if not stdout_line and not stderr_line and self.update_process.poll() is not None:
+                    break
+                
+                if stdout_line:
+                    self.stdout_output += stdout_line.decode()
+                if stderr_line:
+                    self.stderr_output += stderr_line.decode()
+                
+                # Update the log
+                GLib.idle_add(self.update_log)
+                
+                # Pause for a short time to simulate millisecond updates
+                time.sleep(0.001)
 
-                if process.returncode == 0:
-                    # After sync, check for updates
-                    result = subprocess.run(['pacman', '-Qu'], capture_output=True, text=True)
-                    if result.stdout:
-                        updates = result.stdout.strip()
-                        GLib.idle_add(self.update_output, "\nAvailable updates:\n" + updates)
-                        self.status_label.set_text(f"Found {len(updates.split())} updates available")
-                    else:
-                        GLib.idle_add(self.update_output, "System is up to date!")
-                else:
-                    GLib.idle_add(self.update_output, f"Error syncing: {error}")
-            except Exception as e:
-                GLib.idle_add(self.update_output, f"Error checking updates: {str(e)}")
+            # Send notification when update finishes successfully
+            self.send_notification("Arch Linux Update", "Update process finished successfully.")
 
-        threading.Thread(target=update_task, daemon=True).start()
+        except Exception as e:
+            self.append_to_log(f"Error during update: {str(e)}\n")
+            self.send_notification("Arch Linux Update", f"Error: {str(e)}")
 
-    def check_drivers(self, button):
-        self.status_label.set_text("Checking drivers...")
-        self.output_buffer.set_text("")
+    def update_log(self):
+        """Update the log view with the new captured output."""
+        # Update log with stdout and stderr content
+        if self.stdout_output:
+            self.append_to_log(self.stdout_output)
+            self.stdout_output = ""  # Clear the stdout buffer
+        
+        if self.stderr_output:
+            self.append_to_log(self.stderr_output)
+            self.stderr_output = ""  # Clear the stderr buffer
 
-        def driver_task():
-            try:
-                result = subprocess.run(['lspci', '-k'], capture_output=True, text=True)
-                devices = result.stdout.strip().split('\n\n')
-                missing_drivers = []
+    def append_to_log(self, message):
+        # Get the current text in the log
+        current_text = self.log_buffer.get_text(self.log_buffer.get_start_iter(), self.log_buffer.get_end_iter(), False)
+        
+        # Append new log message
+        self.log_buffer.set_text(current_text + message)
 
-                for device in devices:
-                    if 'Kernel driver in use:' not in device:
-                        missing_drivers.append(device.split('\n')[0])
+    def send_notification(self, title, message):
+        """Send a notification using libnotify."""
+        notification = Notify.Notification.new(title, message)
+        notification.show()
 
-                if missing_drivers:
-                    output_text = "Devices missing drivers:\n\n"
-                    for device in missing_drivers:
-                        output_text += f"• {device}\n"
-                    GLib.idle_add(self.update_output, output_text)
-                    self.status_label.set_text(f"Found {len(missing_drivers)} devices without drivers")
-                else:
-                    GLib.idle_add(self.update_output, "All devices have drivers installed!")
-                    self.status_label.set_text("All devices have drivers installed!")
-            except subprocess.CalledProcessError as e:
-                GLib.idle_add(self.update_output, f"Error checking drivers: {str(e)}")
 
-        threading.Thread(target=driver_task, daemon=True).start()
+def main():
+    window = AppWindow()
+    window.connect("destroy", Gtk.main_quit)
+    window.show_all()
+    Gtk.main()
 
-    def update_output(self, text):
-        end_iter = self.output_buffer.get_end_iter()
-        self.output_buffer.insert(end_iter, text)
-
-    def install_updates(self, button):
-        self.status_label.set_text("Installing updates...")
-        self.output_buffer.set_text("")
-
-        def update_task():
-            try:
-                process = subprocess.Popen(['pkexec', 'pacman', '-Syu', '--noconfirm'], 
-                                           stdout=subprocess.PIPE, 
-                                           stderr=subprocess.PIPE,
-                                           universal_newlines=True)
-                output, error = process.communicate()
-
-                if process.returncode == 0:
-                    GLib.idle_add(self.update_output, "Updates installed successfully!")
-                else:
-                    GLib.idle_add(self.update_output, f"Error installing updates: {error}")
-            except Exception as e:
-                GLib.idle_add(self.update_output, f"Error installing updates: {str(e)}")
-
-        threading.Thread(target=update_task, daemon=True).start()
-
-    def install_hwinfo(self, button):
-        self.status_label.set_text("Installing hwinfo...")
-        self.output_buffer.set_text("")
-
-        def install_hwinfo_task():
-            try:
-                process = subprocess.Popen(['pkexec', 'pacman', '-S', '--noconfirm', 'hwinfo'], 
-                                           stdout=subprocess.PIPE,
-                                           stderr=subprocess.PIPE,
-                                           universal_newlines=True)
-                output, error = process.communicate()
-
-                if process.returncode == 0:
-                    GLib.idle_add(self.update_output, "hwinfo installed successfully!")
-                    self.check_drivers(None)  # Refresh driver list
-                else:
-                    GLib.idle_add(self.update_output, f"Error installing hwinfo: {error}")
-            except Exception as e:
-                GLib.idle_add(self.update_output, f"Error installing hwinfo: {str(e)}")
-
-        threading.Thread(target=install_hwinfo_task, daemon=True).start()
-
-if __name__ == '__main__':
-    app = UpdateChecker()
-    app.run(None)
+if __name__ == "__main__":
+    main()
