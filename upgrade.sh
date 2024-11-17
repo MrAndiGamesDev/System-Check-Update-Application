@@ -10,7 +10,7 @@ RESET=$(tput sgr0)
 
 # Script metadata
 SCRIPT_NAME="application"
-SCRIPT_VERSION="0.0.5"
+SCRIPT_VERSION="0.0.6"
 SCRIPT_EXECUTABLE="./application.py"
 
 # Function to display a loading animation
@@ -54,17 +54,6 @@ get_downloads_dir() {
     esac
 }
 
-# Function to get the current version of the script
-get_current_version() {
-    if command -v conda &>/dev/null; then
-        conda list | grep -i "$SCRIPT_NAME" | awk '{print $2}'
-    elif command -v pip &>/dev/null; then
-        pip show "$SCRIPT_NAME" 2>/dev/null | grep Version | awk '{print $2}'
-    else
-        echo ""
-    fi
-}
-
 # Main script execution
 main() {
     OS=$(detect_os)
@@ -83,15 +72,15 @@ main() {
 
     SCRIPT_PATH="$DOWNLOADS_DIR/archupdater/$SCRIPT_NAME.py"
 
-    current_version=$(get_current_version)
+    current_version=$SCRIPT_VERSION
     if [[ "$current_version" == "$SCRIPT_VERSION" ]]; then
-        echo "$OK $SCRIPT_NAME is already up-to-date ($SCRIPT_VERSION)."
+        echo "$OK $SCRIPT_NAME is already up-to-date Version: $SCRIPT_VERSION"
         exit 0
     fi
 
-    new_version=$(get_current_version)
+    new_version=$SCRIPT_VERSION
     if [[ "$new_version" == "$SCRIPT_VERSION" ]]; then
-        echo "$OK $SCRIPT_NAME successfully upgraded to version $SCRIPT_VERSION."
+        echo "$OK $SCRIPT_NAME successfully upgraded to Version: $SCRIPT_VERSION."
     else
         echo "$ERROR $SCRIPT_NAME upgrade failed. Current version: $new_version"
         exit 1
