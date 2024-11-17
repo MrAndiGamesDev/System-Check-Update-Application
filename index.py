@@ -7,7 +7,6 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('Notify', '0.7')
 from gi.repository import Gtk, GLib, Notify
 
-
 class AppWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title="Arch Linux System Update")
@@ -171,13 +170,11 @@ class AppWindow(Gtk.Window):
         notification = Notify.Notification.new(title, message)
         notification.show()
 
-
 def main():
     window = AppWindow()
     window.connect("destroy", Gtk.main_quit)
     window.show_all()
     Gtk.main()
-
 
 if __name__ == "__main__":
     main()
