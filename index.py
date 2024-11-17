@@ -51,11 +51,6 @@ class AppWindow(Gtk.Window):
         # Initialize notification library
         Notify.init("Arch Linux Update")
 
-        # Prepare to capture output and error in real-time
-        self.update_process = None
-        self.stdout_output = ""
-        self.stderr_output = ""
-
     def on_update_button_clicked(self, button):
         self.append_to_log("Starting Arch Linux update...\n")
         
@@ -97,12 +92,9 @@ class AppWindow(Gtk.Window):
                     break
                 
                 if stdout_line:
-                    self.stdout_output += stdout_line.decode()
+                    GLib.idle_add(self.append_to_log, stdout_line.decode())
                 if stderr_line:
-                    self.stderr_output += stderr_line.decode()
-                
-                # Update the log
-                GLib.idle_add(self.update_log)
+                    GLib.idle_add(self.append_to_log, stderr_line.decode())
                 
                 # Pause for a short time to simulate millisecond updates
                 time.sleep(0.001)
@@ -120,18 +112,8 @@ class AppWindow(Gtk.Window):
         self.send_notification("Arch Linux Update", "Reloading application...", "dialog-information")
         os.execv(sys.executable, ['python3'] + sys.argv)
 
-    def update_log(self):
-        """Update the log view with the new captured output."""
-        # Update log with stdout and stderr content
-        if self.stdout_output:
-            self.append_to_log(self.stdout_output)
-            self.stdout_output = ""  # Clear the stdout buffer
-        
-        if self.stderr_output:
-            self.append_to_log(self.stderr_output)
-            self.stderr_output = ""  # Clear the stderr buffer
-
     def append_to_log(self, message):
+        """Append text to the log view."""
         # Get the current text in the log
         current_text = self.log_buffer.get_text(self.log_buffer.get_start_iter(), self.log_buffer.get_end_iter(), False)
         
