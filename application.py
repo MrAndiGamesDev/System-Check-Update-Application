@@ -179,6 +179,9 @@ class AppWindow(Gtk.Window):
         # Get OS and kernel version
         os_info = self.run_command("uname -a")
         
+        # Get The Network Speed
+        network_speed = self.run_command("nethogs")
+
         # Combining all information
         system_info = (
             f"OS Info:\n{os_info}\n"
