@@ -43,6 +43,16 @@ class AppWindow(Gtk.Window):
         self.reload_button.connect("clicked", self.on_reload_button_clicked)
         box.pack_start(self.reload_button, False, False, 10)
         
+        # Create a button to check system information
+        self.system_info_button = Gtk.Button(label="Check System Info")
+        self.system_info_button.connect("clicked", self.on_system_info_button_clicked)
+        box.pack_start(self.system_info_button, False, False, 10)
+        
+        # Create a button to check system information
+        self.clear_button = Gtk.Button(label="Clear Output")
+        self.clear_button.connect("clicked", self.on_clear)
+        box.pack_start(self.clear_button, False, False, 10)
+
         # Create a text view to display logs
         self.log_view = Gtk.TextView()
         self.log_view.set_editable(False)
@@ -69,18 +79,19 @@ class AppWindow(Gtk.Window):
         )
         dialog.format_secondary_text(
             "This application is intended for Arch Linux. "
-            "Functionality may vary on other systems."
+            "Functionality may vary on other systems.\n"
+            "Also Might be Bugs Just Let Me Know On Discord: mrandi.games.dev"
         )
         dialog.run()
         dialog.destroy()
 
     def on_update_button_clicked(self, button):
-        self.append_to_log("Starting Arch Linux update...\n")
+        self.append_to_log("Starting Arch Linux update...")
         
         # Get password from the password entry
         password = self.password_entry.get_text().strip()
         if not password:
-            self.append_to_log("Password field is empty. Please enter a password.\n")
+            self.append_to_log("Password field is empty. Please enter a password.")
             self.send_notification("Arch Linux Update", "Password field is empty.", "dialog-error")
             return
         
@@ -115,35 +126,91 @@ class AppWindow(Gtk.Window):
                     break
                 
                 if stdout_line:
-                    GLib.idle_add(self.append_to_log, stdout_line.decode())
+                    GLib.idle_add(self.append_to_log, stdout_line.decode().strip())
                 if stderr_line:
-                    GLib.idle_add(self.append_to_log, stderr_line.decode())
+                    GLib.idle_add(self.append_to_log, stderr_line.decode().strip())
                 
                 # Pause for a short time to simulate millisecond updates
-                time.sleep(.001)
+                time.sleep(0.001)
 
             # Send notification when update finishes successfully
             self.send_notification("Arch Linux Update", "Update process finished successfully.", "dialog-information")
 
         except Exception as e:
-            self.append_to_log(f"Error during update: {str(e)}\n")
+            self.append_to_log(f"Error during update: {str(e)}")
             self.send_notification("Arch Linux Update", f"Error: {str(e)}", "dialog-error")
 
     def on_reload_button_clicked(self, button):
         """Reload the application."""
-        self.append_to_log("Reloading application...\n")
+        self.append_to_log("Reloading application...")
         self.send_notification("Arch Linux Update", "Reloading application...", "dialog-information")
         script_path = './upgrade.sh'
-        time.sleep(2)
+        time.sleep(3)
         subprocess.run(['bash', script_path])
+    def on_clear(self, button):
+        """Clear the output displayed in the log view."""
+        self.append_to_log("Clearing Output...")
+        self.send_notification("Arch Linux Update", "Clearing Output...", "dialog-information")
+    
+         # Clear the text buffer of the log view
+        self.log_buffer.set_text("")  # Clears all the content in the text view
+
+    def on_system_info_button_clicked(self, button):
+        """Display detailed system information."""
+        system_info = self.get_detailed_system_info()
+        self.append_to_log(f"System Information:\n{system_info}")
+        self.send_notification("System Information", "Check the logs for detailed system info.", "dialog-information")
+
+    def get_detailed_system_info(self):
+        """Retrieve and return detailed system information."""
         
+        # Get CPU info
+        cpu_info = self.run_command("lscpu")
+        
+        # Get memory info
+        memory_info = self.run_command("free -h")
+        
+        # Get disk usage (using lsblk instead of df -h)
+        disk_info = self.run_command("lsblk -f")
+        
+        # Get network interfaces (using ip a instead of ifconfig)
+        network_info = self.run_command("ip a")
+        
+        # Get OS and kernel version
+        os_info = self.run_command("uname -a")
+        
+        # Combining all information
+        system_info = (
+            f"OS Info:\n{os_info}\n"
+            f"CPU Info:\n{cpu_info}\n"
+            f"Memory Info:\n{memory_info}\n"
+            f"Disk Usage:\n{disk_info}\n"
+            f"Network Interfaces:\n{network_info}\n"
+        )
+        
+        return system_info
+
+    def run_command(self, command):
+        """Run a system command and capture its output."""
+        try:
+            result = subprocess.run(command, shell=True, capture_output=True, text=True, check=True)
+            return result.stdout
+        except subprocess.CalledProcessError as e:
+            return f"Error executing command: {command}\n{e}"
+
     def append_to_log(self, message):
-        """Append text to the log view."""
-        # Get the current text in the log
+        """Append text to the log view with proper formatting."""
+        # Ensure each message is on a new line
         current_text = self.log_buffer.get_text(self.log_buffer.get_start_iter(), self.log_buffer.get_end_iter(), False)
         
-        # Append new log message
-        self.log_buffer.set_text(current_text + message)
+        # Append the new message with a newline for proper formatting
+        if current_text:
+            current_text += "\n"
+        current_text += message
+
+        # Set the text with the new message and move the cursor to the end
+        self.log_buffer.set_text(current_text)
+        self.log_view.scroll_to_iter(self.log_buffer.get_end_iter(), 0.0, True, 0.0, 1.0)
 
     def send_notification(self, title, message, icon="dialog-information"):
         """Send a notification using libnotify."""
