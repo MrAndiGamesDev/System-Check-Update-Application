@@ -120,7 +120,7 @@ class AppWindow(Gtk.Window):
                     GLib.idle_add(self.append_to_log, stderr_line.decode())
                 
                 # Pause for a short time to simulate millisecond updates
-                time.sleep(0.001)
+                time.sleep(.001)
 
             # Send notification when update finishes successfully
             self.send_notification("Arch Linux Update", "Update process finished successfully.", "dialog-information")

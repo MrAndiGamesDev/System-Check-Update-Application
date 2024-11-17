@@ -29,6 +29,7 @@ display_loading() {
         sleep $speed
         progress=$((progress + 1))
         spin_index=$(( (spin_index + 1) % 4 ))
+        clear
     done
     echo ""
 }
@@ -80,6 +81,7 @@ update_script() {
 
 # Main script execution
 main() {
+    display_loading
     OS=$(detect_os)
     echo "$NOTE Detected Operating System: $OS"
 
