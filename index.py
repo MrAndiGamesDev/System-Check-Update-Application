@@ -17,21 +17,6 @@ class AppWindow(Gtk.Window):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         self.add(box)
         
-        # Create a box for the switch and label
-        switch_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        
-        # Create the toggle switch
-        self.switch = Gtk.Switch()
-        self.switch.set_size_request(100, 40)  # Set a fixed size for the switch (adjust as needed)
-        self.switch.connect("state-set", self.on_switch_activated)  # Use state-set instead of notify::active
-        
-        # Add label next to the switch
-        switch_label = Gtk.Label("Enable Auto-Update")
-        switch_box.pack_start(switch_label, False, False, 0)
-        switch_box.pack_start(self.switch, False, False, 0)  # Add the switch to the box with proper packing
-        
-        box.pack_start(switch_box, False, False, 10)
-        
         # Create a password entry box
         password_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         password_label = Gtk.Label(label="Password:")
@@ -54,9 +39,6 @@ class AppWindow(Gtk.Window):
         log_scrolled_window = Gtk.ScrolledWindow()
         log_scrolled_window.add(self.log_view)
         box.pack_start(log_scrolled_window, True, True, 0)
-
-        # Apply a CSS style to fix the switch scaling
-        self.apply_switch_style()
         
         # Initialize notification library
         Notify.init("Arch Linux Update")
@@ -65,29 +47,6 @@ class AppWindow(Gtk.Window):
         self.update_process = None
         self.stdout_output = ""
         self.stderr_output = ""
-
-    def apply_switch_style(self):
-        """Apply custom CSS to fix switch scaling."""
-        css = """
-        GtkSwitch {
-            min-width: 80px;
-            min-height: 30px;
-        }
-        """
-        # Create a CssProvider and load the CSS
-        css_provider = Gtk.CssProvider()
-        css_provider.load_from_data(bytes(css, 'utf-8'))
-        
-        # Add the CSS provider to the window
-        self.get_style_context().add_provider(css_provider, Gtk.STYLE_PROVIDER_PRIORITY_USER)
-
-    def on_switch_activated(self, switch, state):
-        """Called when the switch state is changed (active or inactive)."""
-        is_active = state  # State is either True (ON) or False (OFF)
-        log_message = f"Switch is {'ON' if is_active else 'OFF'}\n"
-        self.send_notification("Arch Linux Update", log_message)
-        # Log the message
-        self.append_to_log(log_message)
 
     def on_update_button_clicked(self, button):
         self.append_to_log("Starting Arch Linux update...\n")
