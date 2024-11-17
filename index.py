@@ -62,7 +62,7 @@ class AppWindow(Gtk.Window):
         password = self.password_entry.get_text().strip()
         if not password:
             self.append_to_log("Password field is empty. Please enter a password.\n")
-            self.send_notification("Arch Linux Update", "Password field is empty.")
+            self.send_notification("Arch Linux Update", "Password field is empty.", "dialog-error")
             return
         
         # Run system update in a separate thread with the entered password
