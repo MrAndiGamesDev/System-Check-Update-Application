@@ -7,11 +7,12 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('Notify', '0.7')
 from gi.repository import Gtk, GLib, Notify
 
+
 class AppWindow(Gtk.Window):
     def __init__(self):
         super().__init__(title="Arch Linux System Update")
         
-        self.set_default_size(400, 200)
+        self.set_default_size(400, 300)
         
         # Create a box to pack widgets
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -31,6 +32,16 @@ class AppWindow(Gtk.Window):
         switch_box.pack_start(self.switch, False, False, 0)  # Add the switch to the box with proper packing
         
         box.pack_start(switch_box, False, False, 10)
+        
+        # Create a password entry box
+        password_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        password_label = Gtk.Label(label="Password:")
+        self.password_entry = Gtk.Entry()
+        self.password_entry.set_visibility(False)  # Hide the password text
+        self.password_entry.set_placeholder_text("Enter your sudo password")
+        password_box.pack_start(password_label, False, False, 0)
+        password_box.pack_start(self.password_entry, True, True, 0)
+        box.pack_start(password_box, False, False, 10)
         
         # Create a button to trigger the system update
         self.update_button = Gtk.Button(label="Update Arch Linux")
@@ -82,34 +93,29 @@ class AppWindow(Gtk.Window):
     def on_update_button_clicked(self, button):
         self.append_to_log("Starting Arch Linux update...\n")
         
-        # First, check if the password is correct before starting the update
-        if self.check_sudo_password():
-            # Send an initial notification about the update
-            self.send_notification("Arch Linux Update", "Update started...")
-            
-            # Run system update in a separate thread
-            threading.Thread(target=self.run_update_process, daemon=True).start()
-        else:
-            self.append_to_log("Incorrect password. Update aborted.\n")
-            self.send_notification("Arch Linux Update", "Password incorrect. Update aborted.")
+        # Get password from the password entry
+        password = self.password_entry.get_text().strip()
+        if not password:
+            self.append_to_log("Password field is empty. Please enter a password.\n")
+            self.send_notification("Arch Linux Update", "Password field is empty.")
+            return
+        
+        # Run system update in a separate thread with the entered password
+        threading.Thread(target=self.run_update_process, args=(password,), daemon=True).start()
 
-    def check_sudo_password(self):
-        """Check if the password is correct by running a sudo command."""
+    def run_update_process(self, password):
         try:
-            # Run 'sudo -v' to check if the password is correct
-            subprocess.run(['sudo', '-v'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            return True
-        except subprocess.CalledProcessError:
-            return False
-
-    def run_update_process(self):
-        try:
-            # Run the update command
+            # Run the update command using the provided password
             self.update_process = subprocess.Popen(
-                ['sudo', 'pacman', '-Syu', '--noconfirm'],
+                ['sudo', '-S', 'pacman', '-Syu', '--noconfirm'],
+                stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
+            
+            # Send password to the subprocess
+            self.update_process.stdin.write(f"{password}\n".encode())
+            self.update_process.stdin.flush()
             
             # Send notification about update progress
             self.send_notification("Arch Linux Update", "Update in progress...")
@@ -171,6 +177,7 @@ def main():
     window.connect("destroy", Gtk.main_quit)
     window.show_all()
     Gtk.main()
+
 
 if __name__ == "__main__":
     main()
