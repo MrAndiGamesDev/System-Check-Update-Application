@@ -2,10 +2,11 @@ import gi
 import subprocess
 import threading
 import time
+import os
+import sys
 
 gi.require_version('Gtk', '3.0')
 gi.require_version('Notify', '0.7')
-
 from gi.repository import Gtk, GLib, Notify
 
 class AppWindow(Gtk.Window):
@@ -32,6 +33,11 @@ class AppWindow(Gtk.Window):
         self.update_button = Gtk.Button(label="Update Arch Linux")
         self.update_button.connect("clicked", self.on_update_button_clicked)
         box.pack_start(self.update_button, False, False, 10)
+        
+        # Create a button to reload the application
+        self.reload_button = Gtk.Button(label="Reload Application")
+        self.reload_button.connect("clicked", self.on_reload_button_clicked)
+        box.pack_start(self.reload_button, False, False, 10)
         
         # Create a text view to display logs
         self.log_view = Gtk.TextView()
@@ -77,7 +83,7 @@ class AppWindow(Gtk.Window):
             self.update_process.stdin.flush()
             
             # Send notification about update progress
-            self.send_notification("Arch Linux Update", "Update in progress...")
+            self.send_notification("Arch Linux Update", "Update in progress...", "system-software-update")
             
             # Start capturing output in real-time
             while True:
@@ -101,11 +107,17 @@ class AppWindow(Gtk.Window):
                 time.sleep(0.001)
 
             # Send notification when update finishes successfully
-            self.send_notification("Arch Linux Update", "Update process finished successfully.")
+            self.send_notification("Arch Linux Update", "Update process finished successfully.", "dialog-information")
 
         except Exception as e:
             self.append_to_log(f"Error during update: {str(e)}\n")
-            self.send_notification("Arch Linux Update", f"Error: {str(e)}")
+            self.send_notification("Arch Linux Update", f"Error: {str(e)}", "dialog-error")
+
+    def on_reload_button_clicked(self, button):
+        """Reload the application."""
+        self.append_to_log("Reloading application...\n")
+        self.send_notification("Arch Linux Update", "Reloading application...", "dialog-information")
+        os.execv(sys.executable, ['python3'] + sys.argv)
 
     def update_log(self):
         """Update the log view with the new captured output."""
@@ -125,9 +137,9 @@ class AppWindow(Gtk.Window):
         # Append new log message
         self.log_buffer.set_text(current_text + message)
 
-    def send_notification(self, title, message):
+    def send_notification(self, title, message, icon="dialog-information"):
         """Send a notification using libnotify."""
-        notification = Notify.Notification.new(title, message)
+        notification = Notify.Notification.new(title, message, icon)
         notification.show()
 
 def main():
