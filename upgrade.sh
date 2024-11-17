@@ -108,7 +108,7 @@ main() {
     # If no update is needed, run the existing script
     if [[ -f "$SCRIPT_EXECUTABLE" ]]; then
         echo "$NOTE Running $SCRIPT_NAME..."
-        kill -9 $(pgrep -f application.py)
+        kill -9 $(pgrep -f $SCRIPT_EXECUTABLE)
         python3 "$SCRIPT_EXECUTABLE"
         exit 1 "$SCRIPT_EXECUTABLE"
     else
