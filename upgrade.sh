@@ -10,8 +10,9 @@ RESET=$(tput sgr0)
 
 # Script metadata
 SCRIPT_NAME="application"
-SCRIPT_VERSION="0.0.6"
+SCRIPT_VERSION="0.0.7"
 SCRIPT_EXECUTABLE="./application.py"
+BACKUP_DIR="$HOME/downloads/archupdater"  # Directory where the latest version is stored (locally)
 
 # Function to display a loading animation
 display_loading() {
@@ -49,9 +50,32 @@ get_downloads_dir() {
             command -v xdg-user-dir &>/dev/null && xdg-user-dir DOWNLOAD || echo "$HOME/Downloads"
             ;;
         "macOS") echo "$HOME/Downloads";;
-        "Windows") echo ""; ;; # Not implemented
+        "Windows") echo ""; ;; # Not implemented for Windows
         *) echo ""; ;;
     esac
+}
+
+# Function to update the script from the local backup directory
+update_script() {
+    echo "$CAT Updating $SCRIPT_NAME..."
+
+    # Step 1: Check if the backup directory contains the new version
+    if [[ ! -f "$BACKUP_DIR/$SCRIPT_NAME.py" ]]; then
+        echo "$ERROR Backup directory does not contain the new version of the script."
+        exit 1
+    fi
+
+    # Step 2: Display loading animation while replacing the script
+    display_loading
+
+    # Step 3: Replace the old script with the new version from the backup directory
+    echo "$NOTE Replacing the old script..."
+    mv "$BACKUP_DIR/$SCRIPT_NAME.py" "$SCRIPT_EXECUTABLE"
+
+    # Step 4: Restart the application using the updated script
+    echo "$NOTE Restarting the application..."
+    python3 "$SCRIPT_EXECUTABLE" &
+    exit 0  # Exit the current instance of the script to allow the new one to start
 }
 
 # Main script execution
@@ -72,24 +96,21 @@ main() {
 
     SCRIPT_PATH="$DOWNLOADS_DIR/archupdater/$SCRIPT_NAME.py"
 
-    current_version=$SCRIPT_VERSION
-    if [[ "$current_version" == "$SCRIPT_VERSION" ]]; then
-        echo "$OK $SCRIPT_NAME is already up-to-date Version: $SCRIPT_VERSION"
-        exit 0
-    fi
-
-    new_version=$SCRIPT_VERSION
-    if [[ "$new_version" == "$SCRIPT_VERSION" ]]; then
-        echo "$OK $SCRIPT_NAME successfully upgraded to Version: $SCRIPT_VERSION."
+    # Check if there is a newer version of the script available in the backup directory
+    if [[ -f "$BACKUP_DIR/$SCRIPT_NAME.py" ]]; then
+        # Only proceed with the update if the backup version is different
+        echo "$OK Found new version in the backup directory."
+        update_script
     else
-        echo "$ERROR $SCRIPT_NAME upgrade failed. Current version: $new_version"
-        exit 1
+        echo "$OK $SCRIPT_NAME is already up-to-date Version: $SCRIPT_VERSION"
     fi
 
-    # Run the updated script
+    # If no update is needed, run the existing script
     if [[ -f "$SCRIPT_EXECUTABLE" ]]; then
         echo "$NOTE Running $SCRIPT_NAME..."
+        kill -9 $(pgrep -f application.py)
         python3 "$SCRIPT_EXECUTABLE"
+        exit 1 "$SCRIPT_EXECUTABLE"
     else
         echo "$ERROR $SCRIPT_EXECUTABLE not found."
         exit 1

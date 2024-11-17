@@ -3,6 +3,7 @@ import subprocess
 import threading
 import time
 import platform
+import sys
 gi.require_version('Gtk', '3.0')
 gi.require_version('Notify', '0.7')
 from gi.repository import Gtk, GLib, Notify
@@ -132,8 +133,9 @@ class AppWindow(Gtk.Window):
         self.append_to_log("Reloading application...\n")
         self.send_notification("Arch Linux Update", "Reloading application...", "dialog-information")
         script_path = './upgrade.sh'
-        subprocess.run(['bash', script_path], check=False)
-
+        time.sleep(2)
+        subprocess.run(['bash', script_path])
+        
     def append_to_log(self, message):
         """Append text to the log view."""
         # Get the current text in the log
